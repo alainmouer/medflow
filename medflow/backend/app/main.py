@@ -7,13 +7,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
+from app.api.ws_triage import triage_ws_endpoint
 from app.core.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup for dev/sqlite if they don't exist.
-    # Production PostgreSQL should always use Alembic.
     if settings.DATABASE_URL.startswith("sqlite"):
         from app.db.database import Base, engine
         Base.metadata.create_all(bind=engine)
@@ -37,6 +36,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router)
+    app.add_api_websocket_route("/ws/triage", triage_ws_endpoint)
     return app
 
 

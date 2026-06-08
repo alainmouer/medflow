@@ -15,6 +15,12 @@ node_modules/
 next-env.d.ts
 out/
 
+# Next.js build output
+.next/
+
+# Logs
+*.log
+
 # Build artifacts
 medflow.db
 test.db

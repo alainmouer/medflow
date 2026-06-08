@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password
 from app.db.database import get_db
-from app.models.models import Tenant, User, Patient, Episode, Prescription
+from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry
 from app.schemas.schemas import (
     HealthOut,
     Token,
@@ -27,11 +27,18 @@ from app.schemas.schemas import (
     PrescriptionOut,
     PrescriptionUpdate,
     AnalysisResult,
-    PipelineRequest,
+    TriageCreate,
+    TriageOut,
+    TriageStatsOut,
+    RuleViolationOut,
+    ConfidenceScoreOut,
+    TriageUpdate,
 )
-from app.services.ai_service import AIService, get_ai_service, AIProviderError
+from app.services.ai_service import AIService, get_ai_service
 from app.services.rules_engine import evaluate_episode
 from app.services.triage_engine import triage_episode
+from app.services.urgency_triage import score_urgency
+from app.api.ws_triage import manager as triage_ws_manager
 
 router = APIRouter()
 
@@ -449,6 +456,128 @@ async def sign_prescription(
 
 
 # -----------------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------------
+# Triage management
+# -----------------------------------------------------------------------------
+
+
+@router.post("/api/triage", response_model=TriageOut, tags=["triage"])
+async def create_triage_entry(
+    payload: TriageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TriageOut:
+    """Create a triage entry with auto-scoring."""
+    if current_user.role not in ("doctor", "ipa", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor, IPA or sec role required")
+
+    data = payload.model_dump()
+    result = score_urgency(data)
+
+    entry = TriageEntry(
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
+        priority=result.priority,
+        score=result.score,
+        **data,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    # Real-time alert for P1/P2
+    if result.priority in ("P1", "P2"):
+        import asyncio
+        asyncio.create_task(
+            triage_ws_manager.broadcast(
+                current_user.tenant_id,
+                {
+                    "type": "triage_alert",
+                    "priority": result.priority,
+                    "score": result.score,
+                    "chief_complaint": data.get("chief_complaint"),
+                    "id": str(entry.id),
+                },
+            )
+        )
+
+    return TriageOut.model_validate(entry)
+
+
+@router.get("/api/triage", response_model=list[TriageOut], tags=["triage"])
+async def list_triage_entries(
+    status: str | None = None,
+    priority: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[TriageOut]:
+    query = db.query(TriageEntry).filter(TriageEntry.tenant_id == current_user.tenant_id)
+    if status:
+        query = query.filter(TriageEntry.status == status)
+    if priority:
+        query = query.filter(TriageEntry.priority == priority)
+    return [TriageOut.model_validate(t) for t in query.order_by(TriageEntry.score.desc()).all()]
+
+
+@router.get("/api/triage/stats/counts", response_model=TriageStatsOut, tags=["triage"])
+async def triage_counts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TriageStatsOut:
+    """Return P1-P5 counts for the current tenant."""
+    rows = db.query(TriageEntry).filter(TriageEntry.tenant_id == current_user.tenant_id).all()
+    counts = {"P1": 0, "P2": 0, "P3": 0, "P4": 0, "P5": 0}
+    for r in rows:
+        counts[r.priority] = counts.get(r.priority, 0) + 1
+    return TriageStatsOut(tenant_id=current_user.tenant_id, counts=counts)
+
+
+@router.get("/api/triage/{triage_id}", response_model=TriageOut, tags=["triage"])
+async def get_triage_entry(
+    triage_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TriageOut:
+    entry = db.query(TriageEntry).filter(
+        TriageEntry.id == triage_id, TriageEntry.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Triage entry not found")
+    return TriageOut.model_validate(entry)
+
+
+@router.patch("/api/triage/{triage_id}", response_model=TriageOut, tags=["triage"])
+async def update_triage_entry(
+    triage_id: str,
+    payload: TriageUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TriageOut:
+    entry = db.query(TriageEntry).filter(
+        TriageEntry.id == triage_id, TriageEntry.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Triage entry not found")
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(entry, field, value)
+    if any(k in update_data for k in [
+        "heart_rate", "blood_pressure_systolic", "blood_pressure_diastolic",
+        "temperature", "oxygen_saturation", "respiratory_rate",
+        "glucose", "pain_scale", "consciousness_level", "chief_complaint",
+    ]):
+        recalc = score_urgency({k: getattr(entry, k) for k in [
+            "heart_rate", "blood_pressure_systolic", "blood_pressure_diastolic",
+            "temperature", "oxygen_saturation", "respiratory_rate",
+            "glucose", "pain_scale", "consciousness_level", "chief_complaint",
+        ]})
+        entry.priority = recalc.priority
+        entry.score = recalc.score
+    db.commit()
+    db.refresh(entry)
+    return TriageOut.model_validate(entry)
 
 
 # -----------------------------------------------------------------------------

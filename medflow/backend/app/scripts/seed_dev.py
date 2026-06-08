@@ -6,7 +6,7 @@ import os
 if os.getenv("APP_ENV", "development") != "development":
     raise SystemExit("seed_dev.py must only be run in development mode")
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Add parent directory to path to allow imports from app
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

@@ -14,9 +14,18 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: "cd ..\\backend && set PYTHONPATH=. && venv\\Scripts\\python.exe scripts\\start_dev_server.py",
+      url: "http://127.0.0.1:8000/health",
+      timeout: 120 * 1000,
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: "npm run dev",
+      url: "http://localhost:3000",
+      timeout: 60 * 1000,
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 });

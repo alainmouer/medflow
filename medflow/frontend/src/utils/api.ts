@@ -69,3 +69,17 @@ export const analyzeEpisode = (id: string) =>
 
 export const signEpisode = (id: string) =>
   apiClient(`/api/episodes/${id}/sign`, { method: "POST" });
+
+// Triage
+export const getTriageEntries = (params?: { status?: string; priority?: string }) => {
+  const qs = params ? new URLSearchParams(params).toString() : "";
+  return apiClient(qs ? `/api/triage?${qs}` : "/api/triage");
+};
+
+export const getTriageStats = () => apiClient("/api/triage/stats/counts");
+
+export const createTriageEntry = (data: Record<string, unknown>) =>
+  apiClient("/api/triage", { method: "POST", body: JSON.stringify(data) });
+
+export const updateTriageEntry = (id: string, data: Record<string, unknown>) =>
+  apiClient(`/api/triage/${id}`, { method: "PATCH", body: JSON.stringify(data) });

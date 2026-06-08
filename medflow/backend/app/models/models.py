@@ -123,5 +123,36 @@ class Prescription(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class TriageEntry(Base):
+    """Urgency triage entry (P1-P5) linked to an episode or standalone intake."""
+
+    __tablename__ = "triage_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    episode_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    patient_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    chief_complaint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Vital signs
+    heart_rate: Mapped[int | None] = mapped_column(nullable=True)
+    blood_pressure_systolic: Mapped[int | None] = mapped_column(nullable=True)
+    blood_pressure_diastolic: Mapped[int | None] = mapped_column(nullable=True)
+    temperature: Mapped[float | None] = mapped_column(nullable=True)
+    oxygen_saturation: Mapped[float | None] = mapped_column(nullable=True)
+    respiratory_rate: Mapped[int | None] = mapped_column(nullable=True)
+    glucose: Mapped[float | None] = mapped_column(nullable=True)
+    pain_scale: Mapped[int | None] = mapped_column(nullable=True)
+    consciousness_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Scoring result
+    priority: Mapped[str] = mapped_column(String(10), nullable=False, default="P5")
+    score: Mapped[int] = mapped_column(nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="waiting")
+    assigned_to: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 # Ensure tenant_id is present on all new tables via this registry.
 # Table audit trail and external_integration_logs will be added in later phases.

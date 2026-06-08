@@ -214,3 +214,62 @@ class PipelineRequest(BaseModel):
 
 
 # -----------------------------------------------------------------------------
+# Triage schemas
+# -----------------------------------------------------------------------------
+
+class TriageBase(BaseModel):
+    episode_id: str | None = None
+    patient_id: str | None = None
+    chief_complaint: str | None = None
+    heart_rate: int | None = Field(None, ge=0, le=300)
+    blood_pressure_systolic: int | None = Field(None, ge=0, le=300)
+    blood_pressure_diastolic: int | None = Field(None, ge=0, le=200)
+    temperature: float | None = Field(None, ge=30.0, le=45.0)
+    oxygen_saturation: float | None = Field(None, ge=0.0, le=100.0)
+    respiratory_rate: int | None = Field(None, ge=0, le=60)
+    glucose: float | None = Field(None, ge=0.0, le=50.0)
+    pain_scale: int | None = Field(None, ge=0, le=10)
+    consciousness_level: str | None = Field(None, max_length=20)
+    notes: str | None = None
+
+
+class TriageCreate(TriageBase):
+    pass
+
+
+class TriageUpdate(BaseModel):
+    chief_complaint: str | None = None
+    heart_rate: int | None = Field(None, ge=0, le=300)
+    blood_pressure_systolic: int | None = Field(None, ge=0, le=300)
+    blood_pressure_diastolic: int | None = Field(None, ge=0, le=200)
+    temperature: float | None = Field(None, ge=30.0, le=45.0)
+    oxygen_saturation: float | None = Field(None, ge=0.0, le=100.0)
+    respiratory_rate: int | None = Field(None, ge=0, le=60)
+    glucose: float | None = Field(None, ge=0.0, le=50.0)
+    pain_scale: int | None = Field(None, ge=0, le=10)
+    consciousness_level: str | None = Field(None, max_length=20)
+    status: str | None = None
+    assigned_to: str | None = None
+    notes: str | None = None
+
+
+class TriageOut(TriageBase):
+    id: str
+    tenant_id: str
+    priority: str
+    score: int
+    status: str
+    assigned_to: str | None = None
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TriageStatsOut(BaseModel):
+    tenant_id: str
+    counts: dict[str, int]
+
+
+# -----------------------------------------------------------------------------
