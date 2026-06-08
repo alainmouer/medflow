@@ -119,20 +119,29 @@ export default function PatientDetailPage() {
                         {ep.chief_complaint && <p className="mb-1 text-sm font-medium text-slate-800">{ep.chief_complaint}</p>}
                         {ep.clinical_notes && <p className="text-sm text-slate-600">{ep.clinical_notes}</p>}
                       </div>
-                      <select
-                        value={ep.status}
-                        disabled={updating === ep.id}
-                        onChange={(e) => handleStatusChange(ep.id, e.target.value)}
-                        className="ml-4 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                        aria-label="Changer le statut"
-                      >
-                        <option value="pending">En attente</option>
-                        <option value="consented">Consenté</option>
-                        <option value="collecting">Collecte en cours</option>
-                        <option value="collected">Collecté</option>
-                        <option value="processing">En traitement IA</option>
-                        <option value="signed">Signé</option>
-                      </select>
+                      <div className="ml-4 flex flex-col gap-2">
+                        <button
+                          onClick={() => router.push(`/patients/${patientId}/episodes/${ep.id}/analyze`)}
+                          className="rounded-md bg-sky-600 px-3 py-1 text-xs font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-1"
+                          aria-label="Analyser avec l'IA"
+                        >
+                          Analyser
+                        </button>
+                        <select
+                          value={ep.status}
+                          disabled={updating === ep.id}
+                          onChange={(e) => handleStatusChange(ep.id, e.target.value)}
+                          className="rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                          aria-label="Changer le statut"
+                        >
+                          <option value="pending">En attente</option>
+                          <option value="consented">Consenté</option>
+                          <option value="collecting">Collecte en cours</option>
+                          <option value="collected">Collecté</option>
+                          <option value="processing">En traitement IA</option>
+                          <option value="signed">Signé</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                 );

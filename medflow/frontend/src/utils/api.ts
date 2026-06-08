@@ -60,3 +60,9 @@ export const getEpisodes = (patientId?: string) =>
 
 export const updateEpisode = (id: string, data: Record<string, unknown>) =>
   apiClient(`/api/episodes/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const getEpisode = (id: string) =>
+  apiClient(`/api/episodes/${id}`);
+
+export const analyzeEpisode = (id: string) =>
+  apiClient(`/api/episodes/${id}/analyze`, { method: "POST" });
