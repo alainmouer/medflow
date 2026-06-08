@@ -12,14 +12,11 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from sqlalchemy.orm import Session
-from app.db.database import SessionLocal, engine, Base
+from app.db.database import SessionLocal
 from app.models.models import Tenant, User, Patient, Episode
 from app.core.security import get_password_hash
 
 def seed():
-    # Ensure tables exist (Alembic should handle this usually, but safe for dev)
-    Base.metadata.create_all(bind=engine)
-    
     db: Session = SessionLocal()
     try:
         # 1. Create Default Tenant

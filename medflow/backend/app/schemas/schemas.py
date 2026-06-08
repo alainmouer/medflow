@@ -273,3 +273,99 @@ class TriageStatsOut(BaseModel):
 
 
 # -----------------------------------------------------------------------------
+# Agenda schemas
+# -----------------------------------------------------------------------------
+
+class AppointmentBase(BaseModel):
+    patient_id: str | None = None
+    episode_id: str | None = None
+    assigned_staff_id: str | None = None
+    appointment_type: str = Field("consultation", max_length=50)
+    modality: str = Field("synchronous_presential", max_length=50)
+    scheduled_at: datetime | None = None
+    duration_min: int | None = Field(None, ge=1, le=480)
+    location: str | None = Field(None, max_length=200)
+    video_link: str | None = Field(None, max_length=300)
+    notes: str | None = None
+
+
+class AppointmentCreate(AppointmentBase):
+    pass
+
+
+class AppointmentUpdate(BaseModel):
+    patient_id: str | None = None
+    episode_id: str | None = None
+    assigned_staff_id: str | None = None
+    appointment_type: str | None = Field(None, max_length=50)
+    modality: str | None = Field(None, max_length=50)
+    status: str | None = Field(None, max_length=50)
+    scheduled_at: datetime | None = None
+    duration_min: int | None = Field(None, ge=1, le=480)
+    location: str | None = Field(None, max_length=200)
+    video_link: str | None = Field(None, max_length=300)
+    notes: str | None = None
+
+
+class AppointmentOut(AppointmentBase):
+    id: str
+    tenant_id: str
+    status: str
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class FieldVisitBase(BaseModel):
+    patient_id: str | None = None
+    episode_id: str | None = None
+    assigned_staff_id: str | None = None
+    collection_mode: str = Field("internal_visit", max_length=50)
+    location_type: str = Field("home", max_length=50)
+    location_address: str | None = None
+    patient_count: int = Field(1, ge=1)
+    is_group_visit: bool = False
+    scheduled_start_at: datetime | None = None
+    scheduled_end_at: datetime | None = None
+    due_at: datetime | None = None
+    notes: str | None = None
+
+
+class FieldVisitCreate(FieldVisitBase):
+    pass
+
+
+class FieldVisitUpdate(BaseModel):
+    patient_id: str | None = None
+    episode_id: str | None = None
+    assigned_staff_id: str | None = None
+    collection_mode: str | None = Field(None, max_length=50)
+    location_type: str | None = Field(None, max_length=50)
+    location_address: str | None = None
+    patient_count: int | None = Field(None, ge=1)
+    is_group_visit: bool | None = None
+    scheduled_start_at: datetime | None = None
+    scheduled_end_at: datetime | None = None
+    due_at: datetime | None = None
+    status: str | None = Field(None, max_length=50)
+    checklist: str | None = None
+    checklist_completion_rate: int | None = Field(None, ge=0, le=100)
+    notes: str | None = None
+
+
+class FieldVisitOut(FieldVisitBase):
+    id: str
+    tenant_id: str
+    status: str
+    checklist: str | None = None
+    checklist_completion_rate: int
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# -----------------------------------------------------------------------------

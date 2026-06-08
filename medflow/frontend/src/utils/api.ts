@@ -83,3 +83,26 @@ export const createTriageEntry = (data: Record<string, unknown>) =>
 
 export const updateTriageEntry = (id: string, data: Record<string, unknown>) =>
   apiClient(`/api/triage/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+// Agenda
+export const getAppointments = (params?: Record<string, string>) => {
+  const qs = params ? new URLSearchParams(params).toString() : "";
+  return apiClient(qs ? `/api/appointments?${qs}` : "/api/appointments");
+};
+
+export const createAppointment = (data: Record<string, unknown>) =>
+  apiClient("/api/appointments", { method: "POST", body: JSON.stringify(data) });
+
+export const updateAppointment = (id: string, data: Record<string, unknown>) =>
+  apiClient(`/api/appointments/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const getFieldVisits = (params?: Record<string, string>) => {
+  const qs = params ? new URLSearchParams(params).toString() : "";
+  return apiClient(qs ? `/api/field-visits?${qs}` : "/api/field-visits");
+};
+
+export const createFieldVisit = (data: Record<string, unknown>) =>
+  apiClient("/api/field-visits", { method: "POST", body: JSON.stringify(data) });
+
+export const updateFieldVisit = (id: string, data: Record<string, unknown>) =>
+  apiClient(`/api/field-visits/${id}`, { method: "PATCH", body: JSON.stringify(data) });

@@ -154,5 +154,55 @@ class TriageEntry(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class Appointment(Base):
+    """Unified appointment (cabinet, teleconsultation, exam, field-visit link)."""
+
+    __tablename__ = "appointments"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    patient_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    episode_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assigned_staff_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    appointment_type: Mapped[str] = mapped_column(String(50), nullable=False, default="consultation")
+    modality: Mapped[str] = mapped_column(String(50), nullable=False, default="synchronous_presential")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="scheduled")
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_min: Mapped[int | None] = mapped_column(nullable=True)
+    location: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    video_link: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class FieldVisit(Base):
+    """Field mission (home, EHPAD, clinic) with checklist and episode sync."""
+
+    __tablename__ = "field_visits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    patient_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    episode_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assigned_staff_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    collection_mode: Mapped[str] = mapped_column(String(50), nullable=False, default="internal_visit")
+    location_type: Mapped[str] = mapped_column(String(50), nullable=False, default="home")
+    location_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    patient_count: Mapped[int] = mapped_column(nullable=False, default=1)
+    is_group_visit: Mapped[bool] = mapped_column(Boolean, default=False)
+    scheduled_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
+    checklist: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    checklist_completion_rate: Mapped[int] = mapped_column(nullable=False, default=0)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 # Ensure tenant_id is present on all new tables via this registry.
 # Table audit trail and external_integration_logs will be added in later phases.

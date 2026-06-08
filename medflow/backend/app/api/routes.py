@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password
 from app.db.database import get_db
-from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry
+from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry, Appointment, FieldVisit
 from app.schemas.schemas import (
     HealthOut,
     Token,
@@ -33,6 +33,12 @@ from app.schemas.schemas import (
     RuleViolationOut,
     ConfidenceScoreOut,
     TriageUpdate,
+    AppointmentCreate,
+    AppointmentOut,
+    AppointmentUpdate,
+    FieldVisitCreate,
+    FieldVisitOut,
+    FieldVisitUpdate,
 )
 from app.services.ai_service import AIService, get_ai_service
 from app.services.rules_engine import evaluate_episode
@@ -578,6 +584,127 @@ async def update_triage_entry(
     db.commit()
     db.refresh(entry)
     return TriageOut.model_validate(entry)
+
+
+# -----------------------------------------------------------------------------
+# Agenda — appointments & field visits
+# -----------------------------------------------------------------------------
+
+
+@router.post("/api/appointments", response_model=AppointmentOut, tags=["agenda"])
+async def create_appointment(
+    payload: AppointmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AppointmentOut:
+    """Create an appointment. Allowed: doctor, ipa, sec."""
+    if current_user.role not in ("doctor", "ipa", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor, IPA or sec role required")
+    entry = Appointment(tenant_id=current_user.tenant_id, created_by=current_user.id, **payload.model_dump())
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return AppointmentOut.model_validate(entry)
+
+
+@router.get("/api/appointments", response_model=list[AppointmentOut], tags=["agenda"])
+async def list_appointments(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str | None = None,
+    assigned_staff_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AppointmentOut]:
+    query = db.query(Appointment).filter(Appointment.tenant_id == current_user.tenant_id)
+    if date_from:
+        query = query.filter(Appointment.scheduled_at >= date_from)
+    if date_to:
+        query = query.filter(Appointment.scheduled_at <= date_to)
+    if status:
+        query = query.filter(Appointment.status == status)
+    if assigned_staff_id:
+        query = query.filter(Appointment.assigned_staff_id == assigned_staff_id)
+    return [AppointmentOut.model_validate(a) for a in query.order_by(Appointment.scheduled_at.asc()).all()]
+
+
+@router.patch("/api/appointments/{appointment_id}", response_model=AppointmentOut, tags=["agenda"])
+async def update_appointment(
+    appointment_id: str,
+    payload: AppointmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AppointmentOut:
+    entry = db.query(Appointment).filter(
+        Appointment.id == appointment_id, Appointment.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found")
+    if current_user.role not in ("doctor", "ipa", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor, IPA or sec role required")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(entry, field, value)
+    db.commit()
+    db.refresh(entry)
+    return AppointmentOut.model_validate(entry)
+
+
+@router.post("/api/field-visits", response_model=FieldVisitOut, tags=["agenda"])
+async def create_field_visit(
+    payload: FieldVisitCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FieldVisitOut:
+    """Create a field visit. Allowed: doctor, ipa, sec."""
+    if current_user.role not in ("doctor", "ipa", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor, IPA or sec role required")
+    entry = FieldVisit(tenant_id=current_user.tenant_id, created_by=current_user.id, **payload.model_dump())
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return FieldVisitOut.model_validate(entry)
+
+
+@router.get("/api/field-visits", response_model=list[FieldVisitOut], tags=["agenda"])
+async def list_field_visits(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str | None = None,
+    assigned_staff_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[FieldVisitOut]:
+    query = db.query(FieldVisit).filter(FieldVisit.tenant_id == current_user.tenant_id)
+    if date_from:
+        query = query.filter(FieldVisit.scheduled_start_at >= date_from)
+    if date_to:
+        query = query.filter(FieldVisit.scheduled_start_at <= date_to)
+    if status:
+        query = query.filter(FieldVisit.status == status)
+    if assigned_staff_id:
+        query = query.filter(FieldVisit.assigned_staff_id == assigned_staff_id)
+    return [FieldVisitOut.model_validate(v) for v in query.order_by(FieldVisit.scheduled_start_at.asc()).all()]
+
+
+@router.patch("/api/field-visits/{visit_id}", response_model=FieldVisitOut, tags=["agenda"])
+async def update_field_visit(
+    visit_id: str,
+    payload: FieldVisitUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FieldVisitOut:
+    entry = db.query(FieldVisit).filter(
+        FieldVisit.id == visit_id, FieldVisit.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Field visit not found")
+    if current_user.role not in ("doctor", "ipa", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor, IPA or sec role required")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(entry, field, value)
+    db.commit()
+    db.refresh(entry)
+    return FieldVisitOut.model_validate(entry)
 
 
 # -----------------------------------------------------------------------------
