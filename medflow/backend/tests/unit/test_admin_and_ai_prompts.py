@@ -8,14 +8,14 @@ from app.models.models import Tenant, User, AISystemPrompt
 
 
 def _get_token(client: TestClient, email: str) -> str:
-    return client.post("/api/auth/login", data={"username": email, "password": "pass"}).json()["access_token"]
+    return client.post("/api/auth/login", data={"username": email, "password": "medflow2026"}).json()["access_token"]
 
 
 def test_admin_list_users(client: TestClient, db_session):
     tenant = Tenant(name="Test", slug="test-admin", specialty="Test")
     db_session.add(tenant)
     db_session.commit()
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     admin = User(tenant_id=tenant.id, email="admin@test.com", hashed_password=hp, full_name="Admin", role="admin")
     db_session.add(admin)
     db_session.commit()
@@ -32,7 +32,7 @@ def test_admin_create_user(client: TestClient, db_session):
     tenant = Tenant(name="Test", slug="test-create", specialty="Test")
     db_session.add(tenant)
     db_session.commit()
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     admin = User(tenant_id=tenant.id, email="admin2@test.com", hashed_password=hp, full_name="Admin", role="admin")
     db_session.add(admin)
     db_session.commit()
@@ -54,7 +54,7 @@ def test_ai_prompts_crud(client: TestClient, db_session):
     tenant = Tenant(name="Test", slug="test-ai", specialty="Test")
     db_session.add(tenant)
     db_session.commit()
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     doctor = User(tenant_id=tenant.id, email="docai@test.com", hashed_password=hp, full_name="Doc", role="doctor")
     db_session.add(doctor)
     db_session.commit()
@@ -81,7 +81,7 @@ def test_ai_prompt_rbac_denied_for_ipa(client: TestClient, db_session):
     tenant = Tenant(name="Test", slug="test-ai-rbac", specialty="Test")
     db_session.add(tenant)
     db_session.commit()
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     ipa = User(tenant_id=tenant.id, email="ipaai@test.com", hashed_password=hp, full_name="IPA", role="ipa")
     db_session.add(ipa)
     db_session.commit()

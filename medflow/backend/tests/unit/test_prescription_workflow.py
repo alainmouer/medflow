@@ -15,7 +15,7 @@ def sample_data(db_session: Session) -> tuple[Tenant, User, User, Patient, Episo
     db_session.add(tenant)
     db_session.commit()
     db_session.refresh(tenant)
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     doctor = User(tenant_id=tenant.id, email="doc@test.com", hashed_password=hp, full_name="Doc", role="doctor")
     ipa = User(tenant_id=tenant.id, email="ipa@test.com", hashed_password=hp, full_name="IPA", role="ipa")
     db_session.add_all([doctor, ipa])
@@ -33,7 +33,7 @@ def sample_data(db_session: Session) -> tuple[Tenant, User, User, Patient, Episo
 
 
 def _get_token(client: TestClient, email: str) -> str:
-    return client.post("/api/auth/login", data={"username": email, "password": "pass"}).json()["access_token"]
+    return client.post("/api/auth/login", data={"username": email, "password": "medflow2026"}).json()["access_token"]
 
 
 # ---------------------------------------------------------------------------

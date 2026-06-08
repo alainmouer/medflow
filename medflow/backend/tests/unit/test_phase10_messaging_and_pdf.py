@@ -8,14 +8,14 @@ from app.models.models import Tenant, User, Patient, Episode, Prescription
 
 
 def _get_token(client: TestClient, email: str) -> str:
-    return client.post("/api/auth/login", data={"username": email, "password": "pass"}).json()["access_token"]
+    return client.post("/api/auth/login", data={"username": email, "password": "medflow2026"}).json()["access_token"]
 
 
 def test_messaging_lifecycle(client: TestClient, db_session):
     tenant = Tenant(name="Test", slug="test-msg", specialty="Test")
     db_session.add(tenant)
     db_session.commit()
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     doc = User(tenant_id=tenant.id, email="docmsg@test.com", hashed_password=hp, full_name="Doc", role="doctor")
     ipa = User(tenant_id=tenant.id, email="ipamsg@test.com", hashed_password=hp, full_name="IPA", role="ipa")
     db_session.add_all([doc, ipa])
@@ -56,7 +56,7 @@ def test_pdf_export_endpoint(client: TestClient, db_session):
     tenant = Tenant(name="Test", slug="test-pdf", specialty="Test")
     db_session.add(tenant)
     db_session.commit()
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     doc = User(tenant_id=tenant.id, email="docpdf@test.com", hashed_password=hp, full_name="Doc", role="doctor")
     db_session.add(doc)
     patient = Patient(tenant_id=tenant.id, last_name="Martin", first_name="Luc")
@@ -82,7 +82,7 @@ def test_mssante_stub_returns_501(client: TestClient, db_session):
     tenant = Tenant(name="Test", slug="test-stub", specialty="Test")
     db_session.add(tenant)
     db_session.commit()
-    hp = get_password_hash("pass")
+    hp = get_password_hash("medflow2026")
     doc = User(tenant_id=tenant.id, email="docstub@test.com", hashed_password=hp, full_name="Doc", role="doctor")
     db_session.add(doc)
     db_session.commit()
