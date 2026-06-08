@@ -38,7 +38,7 @@ def seed():
             print("Tenant already exists")
 
         # 2. Create Users
-        password = "pass"
+        password = "medflow2026"
         hashed_pw = get_password_hash(password)
         
         users_data = [
