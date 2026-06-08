@@ -32,8 +32,8 @@ export default function LoginPage() {
 
   const quickLogin = (roleEmail: string) => {
     setEmail(roleEmail);
-    setPassword("medflow2026");
-    handleLogin(undefined, roleEmail, "medflow2026");
+    setPassword("pass");
+    handleLogin(undefined, roleEmail, "pass");
   };
 
   return (
