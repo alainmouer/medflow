@@ -13,9 +13,6 @@ from app.core.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.DATABASE_URL.startswith("sqlite"):
-        from app.db.database import Base, engine
-        Base.metadata.create_all(bind=engine)
     yield
 
 

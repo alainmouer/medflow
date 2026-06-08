@@ -41,7 +41,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=12, max_length=128)
-    tenant_id: str
+    tenant_id: str | None = None
 
 
 class UserOut(UserBase):
@@ -414,6 +414,40 @@ class BillingOut(BillingBase):
     validated_by: str | None = None
     validated_at: datetime | None = None
     exported_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# -----------------------------------------------------------------------------
+# AI System Prompt schemas
+# -----------------------------------------------------------------------------
+
+class AISystemPromptBase(BaseModel):
+    name: str = Field(..., max_length=100)
+    specialty: str | None = Field(None, max_length=100)
+    version: str = Field("1.0.0", max_length=20)
+    prompt_text: str | None = None
+    is_active: bool = True
+
+
+class AISystemPromptCreate(AISystemPromptBase):
+    pass
+
+
+class AISystemPromptUpdate(BaseModel):
+    name: str | None = Field(None, max_length=100)
+    specialty: str | None = Field(None, max_length=100)
+    version: str | None = Field(None, max_length=20)
+    prompt_text: str | None = None
+    is_active: bool | None = None
+
+
+class AISystemPromptOut(AISystemPromptBase):
+    id: str
+    tenant_id: str
+    created_by: str | None = None
     created_at: datetime
     updated_at: datetime
 

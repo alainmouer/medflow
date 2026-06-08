@@ -1,5 +1,5 @@
 import "./globals.css";
-import NavBar from "@/components/NavBar";
+import ClientLayout from "@/components/ClientLayout";
 
 export const metadata = {
   title: "MedFlow",
@@ -10,8 +10,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="fr">
       <body className="min-h-screen bg-white text-slate-900">
-        <NavBar />
-        {children}
+        <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
   );

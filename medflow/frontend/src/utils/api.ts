@@ -141,3 +141,27 @@ export const validateBilling = (id: string) =>
 
 export const exportBilling = (id: string) =>
   apiClient(`/api/billings/${id}/export`, { method: "POST" });
+
+// Admin Users
+export const getAdminUsers = () => apiClient("/api/admin/users");
+
+export const createAdminUser = (data: Record<string, unknown>) =>
+  apiClient("/api/admin/users", { method: "POST", body: JSON.stringify(data) });
+
+export const updateAdminUser = (id: string, data: Record<string, unknown>) =>
+  apiClient(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const deleteAdminUser = (id: string) =>
+  apiClient(`/api/admin/users/${id}`, { method: "DELETE" });
+
+// AI Prompts
+export const getAIPrompts = () => apiClient("/api/ai-prompts");
+
+export const createAIPrompt = (data: Record<string, unknown>) =>
+  apiClient("/api/ai-prompts", { method: "POST", body: JSON.stringify(data) });
+
+export const updateAIPrompt = (id: string, data: Record<string, unknown>) =>
+  apiClient(`/api/ai-prompts/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const deleteAIPrompt = (id: string) =>
+  apiClient(`/api/ai-prompts/${id}`, { method: "DELETE" });

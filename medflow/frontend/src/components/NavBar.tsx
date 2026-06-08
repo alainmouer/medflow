@@ -2,17 +2,25 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
-const links = [
-  { href: "/dashboard", label: "Tableau de bord" },
-  { href: "/patients", label: "Patients" },
-  { href: "/agenda", label: "Agenda" },
-  { href: "/triage", label: "Triage" },
-  { href: "/billing", label: "Facturation" },
+const getLinks = (t: (k: string) => string) => [
+  { href: "/dashboard", label: t("dashboard") },
+  { href: "/patients", label: t("patients") },
+  { href: "/agenda", label: t("agenda") },
+  { href: "/triage", label: t("triage") },
+  { href: "/billing", label: t("billing") },
+  { href: "/admin/users", label: t("admin") },
 ];
 
 export default function NavBar() {
+  const { t, i18n } = useTranslation();
   const pathname = usePathname();
+
+  const toggleLang = () => {
+    const next = i18n.language === "fr" ? "en" : "fr";
+    i18n.changeLanguage(next);
+  };
 
   return (
     <nav className="border-b border-slate-200 bg-white" aria-label="Navigation principale">
@@ -20,8 +28,8 @@ export default function NavBar() {
         <Link href="/dashboard" className="text-xl font-bold text-sky-600">
           MedFlow
         </Link>
-        <ul className="flex gap-6">
-          {links.map((l) => {
+        <ul className="flex items-center gap-6">
+          {getLinks(t).map((l) => {
             const active = pathname.startsWith(l.href);
             return (
               <li key={l.href}>
@@ -37,6 +45,15 @@ export default function NavBar() {
               </li>
             );
           })}
+          <li>
+            <button
+              onClick={toggleLang}
+              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              aria-label={i18n.language === "fr" ? "Switch to English" : "Passer en Francais"}
+            >
+              {i18n.language === "fr" ? "EN" : "FR"}
+            </button>
+          </li>
         </ul>
       </div>
     </nav>

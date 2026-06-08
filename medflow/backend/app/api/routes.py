@@ -11,13 +11,14 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password
 from app.db.database import get_db
-from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry, Appointment, FieldVisit, Billing
+from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry, Appointment, FieldVisit, Billing, AISystemPrompt
 from app.schemas.schemas import (
     HealthOut,
     Token,
     TenantCreate,
     TenantOut,
     UserOut,
+    UserCreate,
     PatientCreate,
     PatientOut,
     EpisodeCreate,
@@ -43,6 +44,9 @@ from app.schemas.schemas import (
     BillingCreate,
     BillingUpdate,
     BillingOut,
+    AISystemPromptCreate,
+    AISystemPromptUpdate,
+    AISystemPromptOut,
 )
 from app.services.ai_service import AIService, get_ai_service
 from app.services.rules_engine import evaluate_episode
@@ -135,6 +139,87 @@ async def list_tenants(
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
     return [TenantOut.model_validate(t) for t in db.query(Tenant).all()]
+
+
+# -----------------------------------------------------------------------------
+# Admin users
+# -----------------------------------------------------------------------------
+
+
+@router.get("/api/admin/users", response_model=list[UserOut], tags=["admin"])
+async def admin_list_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[UserOut]:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return [UserOut.model_validate(u) for u in db.query(User).filter(User.tenant_id == current_user.tenant_id).all()]
+
+
+@router.post("/api/admin/users", response_model=UserOut, tags=["admin"])
+async def admin_create_user(
+    payload: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserOut:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    existing = db.query(User).filter(User.email == payload.email).first()  # noqa: S608
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+    from app.core.security import get_password_hash
+    user = User(
+        tenant_id=current_user.tenant_id,
+        email=payload.email,
+        hashed_password=get_password_hash(payload.password),
+        full_name=payload.full_name,
+        role=payload.role,
+        specialty=payload.specialty,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return UserOut.model_validate(user)
+
+
+@router.patch("/api/admin/users/{user_id}", response_model=UserOut, tags=["admin"])
+async def admin_update_user(
+    user_id: str,
+    payload: UserCreate,  # reutilise UserCreate en tant que "payload complet"
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> UserOut:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    user = db.query(User).filter(User.id == user_id, User.tenant_id == current_user.tenant_id).first()  # noqa: S608
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if payload.password:
+        from app.core.security import get_password_hash
+        user.hashed_password = get_password_hash(payload.password)
+    user.email = payload.email
+    user.full_name = payload.full_name
+    user.role = payload.role
+    user.specialty = payload.specialty
+    user.tenant_id = current_user.tenant_id
+    db.commit()
+    db.refresh(user)
+    return UserOut.model_validate(user)
+
+
+@router.delete("/api/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["admin"])
+async def admin_delete_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    user = db.query(User).filter(User.id == user_id, User.tenant_id == current_user.tenant_id).first()  # noqa: S608
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    db.delete(user)
+    db.commit()
 
 
 # -----------------------------------------------------------------------------
@@ -902,7 +987,79 @@ async def export_billing(
 
 
 # -----------------------------------------------------------------------------
-# Interoperability stubs (Option C) — return 501 Not Implemented in VI
+# AI System Prompts (admin & doctor only)
+# -----------------------------------------------------------------------------
+
+
+@router.post("/api/ai-prompts", response_model=AISystemPromptOut, tags=["ai-prompts"])
+async def create_ai_prompt(
+    payload: AISystemPromptCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AISystemPromptOut:
+    if current_user.role not in ("admin", "doctor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or doctor role required")
+    entry = AISystemPrompt(
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
+        **payload.model_dump(),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return AISystemPromptOut.model_validate(entry)
+
+
+@router.get("/api/ai-prompts", response_model=list[AISystemPromptOut], tags=["ai-prompts"])
+async def list_ai_prompts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[AISystemPromptOut]:
+    if current_user.role not in ("admin", "doctor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or doctor role required")
+    items = db.query(AISystemPrompt).filter(AISystemPrompt.tenant_id == current_user.tenant_id).all()
+    return [AISystemPromptOut.model_validate(i) for i in items]
+
+
+@router.patch("/api/ai-prompts/{prompt_id}", response_model=AISystemPromptOut, tags=["ai-prompts"])
+async def update_ai_prompt(
+    prompt_id: str,
+    payload: AISystemPromptUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AISystemPromptOut:
+    if current_user.role not in ("admin", "doctor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or doctor role required")
+    entry = db.query(AISystemPrompt).filter(
+        AISystemPrompt.id == prompt_id, AISystemPrompt.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI prompt not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(entry, field, value)
+    db.commit()
+    db.refresh(entry)
+    return AISystemPromptOut.model_validate(entry)
+
+
+@router.delete("/api/ai-prompts/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["ai-prompts"])
+async def delete_ai_prompt(
+    prompt_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    if current_user.role not in ("admin", "doctor"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or doctor role required")
+    entry = db.query(AISystemPrompt).filter(
+        AISystemPrompt.id == prompt_id, AISystemPrompt.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI prompt not found")
+    db.delete(entry)
+    db.commit()
+
+
+# -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 
 STUB_ROUTES = [
