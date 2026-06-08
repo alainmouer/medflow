@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password
 from app.db.database import get_db
-from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry, Appointment, FieldVisit, Billing, AISystemPrompt
+from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry, Appointment, FieldVisit, Billing, AISystemPrompt, Message
 from app.schemas.schemas import (
     HealthOut,
     Token,
@@ -47,6 +47,8 @@ from app.schemas.schemas import (
     AISystemPromptCreate,
     AISystemPromptUpdate,
     AISystemPromptOut,
+    MessageCreate,
+    MessageOut,
 )
 from app.services.ai_service import AIService, get_ai_service
 from app.services.rules_engine import evaluate_episode
@@ -1060,6 +1062,115 @@ async def delete_ai_prompt(
 
 
 # -----------------------------------------------------------------------------
+# Messaging (internal)
+# -----------------------------------------------------------------------------
+
+@router.post("/api/messages", response_model=MessageOut, tags=["messaging"])
+async def create_message(
+    payload: MessageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageOut:
+    entry = Message(
+        tenant_id=current_user.tenant_id,
+        sender_id=current_user.id,
+        **payload.model_dump(),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return MessageOut.model_validate(entry)
+
+
+@router.get("/api/messages/inbox", response_model=list[MessageOut], tags=["messaging"])
+async def list_inbox(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[MessageOut]:
+    items = db.query(Message).filter(
+        Message.tenant_id == current_user.tenant_id,
+        Message.recipient_id == current_user.id,
+    ).order_by(Message.created_at.desc()).all()
+    return [MessageOut.model_validate(i) for i in items]
+
+
+@router.get("/api/messages/sent", response_model=list[MessageOut], tags=["messaging"])
+async def list_sent(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[MessageOut]:
+    items = db.query(Message).filter(
+        Message.tenant_id == current_user.tenant_id,
+        Message.sender_id == current_user.id,
+    ).order_by(Message.created_at.desc()).all()
+    return [MessageOut.model_validate(i) for i in items]
+
+
+@router.patch("/api/messages/{message_id}/read", response_model=MessageOut, tags=["messaging"])
+async def mark_message_read(
+    message_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageOut:
+    entry = db.query(Message).filter(
+        Message.id == message_id, Message.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    entry.is_read = True
+    db.commit()
+    db.refresh(entry)
+    return MessageOut.model_validate(entry)
+
+
+# -----------------------------------------------------------------------------
+# External messaging stubs (MSSanté CI-SIS) — 501 Not Implemented in VI
+# -----------------------------------------------------------------------------
+
+@router.post("/api/messages/external/mssante/send", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["messaging"])
+async def stub_mssante_send(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    return {"detail": "[VI - Non implémenté] Messagerie externe MSSanté CI-SIS réservée pour la VC"}
+
+
+# -----------------------------------------------------------------------------
+# PDF Export
+# -----------------------------------------------------------------------------
+
+@router.get("/api/exports/episodes/{episode_id}/pdf", tags=["exports"])
+async def export_episode_pdf(
+    episode_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in ("doctor", "ipa"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor or IPA role required")
+    episode = db.query(Episode).filter(Episode.id == episode_id, Episode.tenant_id == current_user.tenant_id).first()  # noqa: S608
+    if not episode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    patient = db.query(Patient).filter(Patient.id == episode.patient_id).first()  # noqa: S608
+    prescriptions = db.query(Prescription).filter(Prescription.episode_id == episode_id, Prescription.tenant_id == current_user.tenant_id).all()  # noqa: S608
+    from app.services.pdf_service import generate_episode_pdf
+    import io
+    data = {
+        "tenant_name": "MedFlow",
+        "patient": {"id": patient.id if patient else "", "name": f"{patient.first_name} {patient.last_name}" if patient else ""},
+        "episode": {"id": episode.id, "chief_complaint": episode.chief_complaint, "status": episode.status},
+        "prescriptions": [{"medications": p.medications, "status": p.status, "signed_by": p.signed_by} for p in prescriptions],
+    }
+    pdf_bytes, _ = generate_episode_pdf(data)
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=episode_{episode_id}.pdf"},
+    )
+
+
+# -----------------------------------------------------------------------------
+# Interoperability stubs (Option C) — return 501 Not Implemented in VI
 # -----------------------------------------------------------------------------
 
 STUB_ROUTES = [

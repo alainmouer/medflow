@@ -165,3 +165,18 @@ export const updateAIPrompt = (id: string, data: Record<string, unknown>) =>
 
 export const deleteAIPrompt = (id: string) =>
   apiClient(`/api/ai-prompts/${id}`, { method: "DELETE" });
+
+// Messaging
+export const createMessage = (data: Record<string, unknown>) =>
+  apiClient("/api/messages", { method: "POST", body: JSON.stringify(data) });
+
+export const getInbox = () => apiClient("/api/messages/inbox");
+
+export const getSent = () => apiClient("/api/messages/sent");
+
+export const markMessageRead = (id: string) =>
+  apiClient(`/api/messages/${id}/read`, { method: "PATCH" });
+
+// PDF Export
+export const exportEpisodePdf = (episodeId: string) =>
+  apiClient(`/api/exports/episodes/${episodeId}/pdf`);

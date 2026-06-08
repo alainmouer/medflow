@@ -10,6 +10,7 @@ const getLinks = (t: (k: string) => string) => [
   { href: "/agenda", label: t("agenda") },
   { href: "/triage", label: t("triage") },
   { href: "/billing", label: t("billing") },
+  { href: "/messages", label: "Messages" },
   { href: "/admin/users", label: t("admin") },
 ];
 

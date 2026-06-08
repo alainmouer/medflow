@@ -455,3 +455,28 @@ class AISystemPromptOut(AISystemPromptBase):
 
 
 # -----------------------------------------------------------------------------
+# Message schemas
+# -----------------------------------------------------------------------------
+
+class MessageBase(BaseModel):
+    recipient_id: str | None = None
+    subject: str | None = Field(None, max_length=200)
+    body: str | None = None
+    attachments: str | None = None
+
+
+class MessageCreate(MessageBase):
+    pass
+
+
+class MessageOut(MessageBase):
+    id: str
+    tenant_id: str
+    sender_id: str
+    is_read: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# -----------------------------------------------------------------------------
