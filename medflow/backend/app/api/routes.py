@@ -1,0 +1,468 @@
+"""API routes: health, auth, interop stubs."""
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import jwt
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.security import create_access_token, verify_password
+from app.db.database import get_db
+from app.models.models import Tenant, User, Patient, Episode, Prescription
+from app.schemas.schemas import (
+    HealthOut,
+    Token,
+    TenantCreate,
+    TenantOut,
+    UserOut,
+    PatientCreate,
+    PatientOut,
+    EpisodeCreate,
+    EpisodeOut,
+    EpisodeUpdate,
+    PrescriptionCreate,
+    PrescriptionOut,
+    PrescriptionUpdate,
+    AnalysisResult,
+    PipelineRequest,
+)
+from app.services.ai_service import AIService, get_ai_service, AIProviderError
+from app.services.rules_engine import evaluate_episode
+from app.services.triage_engine import triage_episode
+
+router = APIRouter()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id: str | None = payload.get("sub")
+    except Exception:
+        raise credentials_exception  # noqa: B904
+    if user_id is None:
+        raise credentials_exception
+    user = db.query(User).filter(User.id == user_id).first()  # noqa: S608
+    if user is None:
+        raise credentials_exception
+    if not user.is_active:
+        raise credentials_exception
+    return user
+
+
+# -----------------------------------------------------------------------------
+# Health
+# -----------------------------------------------------------------------------
+
+@router.get("/health", response_model=HealthOut, tags=["system"])
+async def health() -> HealthOut:
+    return HealthOut(status="healthy", version=settings.VERSION, env="dev")
+
+
+# -----------------------------------------------------------------------------
+# Auth
+# -----------------------------------------------------------------------------
+
+@router.post("/api/auth/login", response_model=Token, tags=["auth"])
+async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)) -> Token:
+    user = db.query(User).filter(User.email == form_data.username).first()  # noqa: S608
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account disabled")
+    token = create_access_token({"sub": user.id, "tenant_id": user.tenant_id, "role": user.role})
+    return Token(access_token=token)
+
+
+@router.get("/api/auth/me", response_model=UserOut, tags=["auth"])
+async def me(user: User = Depends(get_current_user)) -> UserOut:
+    return UserOut.model_validate(user)
+
+
+# -----------------------------------------------------------------------------
+# Tenant management (admin only — Phase 2+ hardening)
+# -----------------------------------------------------------------------------
+
+@router.post("/api/admin/tenants", response_model=TenantOut, tags=["admin"])
+async def create_tenant(
+    payload: TenantCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TenantOut:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    existing = db.query(Tenant).filter(Tenant.slug == payload.slug).first()  # noqa: S608
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists")
+    tenant = Tenant(**payload.model_dump())
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return TenantOut.model_validate(tenant)
+
+
+@router.get("/api/admin/tenants", response_model=list[TenantOut], tags=["admin"])
+async def list_tenants(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[TenantOut]:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return [TenantOut.model_validate(t) for t in db.query(Tenant).all()]
+
+
+# -----------------------------------------------------------------------------
+# Patient management (authenticated users with tenant_id)
+# -----------------------------------------------------------------------------
+
+@router.post("/api/patients", response_model=PatientOut, tags=["patients"])
+async def create_patient(
+    payload: PatientCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PatientOut:
+    patient = Patient(tenant_id=current_user.tenant_id, **payload.model_dump())
+    db.add(patient)
+    db.commit()
+    db.refresh(patient)
+    return PatientOut.model_validate(patient)
+
+
+@router.get("/api/patients", response_model=list[PatientOut], tags=["patients"])
+async def list_patients(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[PatientOut]:
+    patients = db.query(Patient).filter(Patient.tenant_id == current_user.tenant_id).all()
+    return [PatientOut.model_validate(p) for p in patients]
+
+
+@router.get("/api/patients/{patient_id}", response_model=PatientOut, tags=["patients"])
+async def get_patient(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PatientOut:
+    patient = db.query(Patient).filter(
+        Patient.id == patient_id, Patient.tenant_id == current_user.tenant_id
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+    return PatientOut.model_validate(patient)
+
+
+# -----------------------------------------------------------------------------
+# Episode management (authenticated users with tenant_id)
+# -----------------------------------------------------------------------------
+
+@router.post("/api/episodes", response_model=EpisodeOut, tags=["episodes"])
+async def create_episode(
+    payload: EpisodeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EpisodeOut:
+    patient = db.query(Patient).filter(
+        Patient.id == payload.patient_id, Patient.tenant_id == current_user.tenant_id
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+    episode = Episode(tenant_id=current_user.tenant_id, collected_by=current_user.id, **payload.model_dump())
+    db.add(episode)
+    db.commit()
+    db.refresh(episode)
+    return EpisodeOut.model_validate(episode)
+
+
+@router.get("/api/episodes", response_model=list[EpisodeOut], tags=["episodes"])
+async def list_episodes(
+    patient_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[EpisodeOut]:
+    query = db.query(Episode).filter(Episode.tenant_id == current_user.tenant_id)
+    if patient_id:
+        query = query.filter(Episode.patient_id == patient_id)
+    episodes = query.all()
+    return [EpisodeOut.model_validate(e) for e in episodes]
+
+
+@router.get("/api/episodes/{episode_id}", response_model=EpisodeOut, tags=["episodes"])
+async def get_episode(
+    episode_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EpisodeOut:
+    episode = db.query(Episode).filter(
+        Episode.id == episode_id, Episode.tenant_id == current_user.tenant_id
+    ).first()
+    if not episode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    return EpisodeOut.model_validate(episode)
+
+
+@router.patch("/api/episodes/{episode_id}", response_model=EpisodeOut, tags=["episodes"])
+async def update_episode(
+    episode_id: str,
+    payload: EpisodeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EpisodeOut:
+    episode = db.query(Episode).filter(
+        Episode.id == episode_id, Episode.tenant_id == current_user.tenant_id
+    ).first()
+    if not episode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(episode, field, value)
+    db.commit()
+    db.refresh(episode)
+    return EpisodeOut.model_validate(episode)
+
+
+# -----------------------------------------------------------------------------
+# AI Pipeline — analysis & triage
+# -----------------------------------------------------------------------------
+
+@router.post("/api/episodes/{episode_id}/analyze", response_model=AnalysisResult, tags=["ai"])
+async def analyze_episode(
+    episode_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    ai_service: AIService = Depends(get_ai_service),
+) -> AnalysisResult:
+    """Run the full AI rules+triage pipeline on an episode.
+
+    Steps:
+      1. Load episode + patient + optional prescription.
+      2. Run rules engine for completeness & safety.
+      3. If completeness >= 70%, run LLM analysis.
+      4. Compute confidence score.
+      5. Persist clinical_complete_percent to episode.
+    """
+    # RBAC: only doctor or ipa can run analysis
+    if current_user.role not in ("doctor", "ipa"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor or IPA role required")
+
+    episode = db.query(Episode).filter(
+        Episode.id == episode_id, Episode.tenant_id == current_user.tenant_id
+    ).first()
+    if not episode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+
+    patient = db.query(Patient).filter(
+        Patient.id == episode.patient_id, Patient.tenant_id == current_user.tenant_id
+    ).first()
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    prescription = db.query(Prescription).filter(
+        Prescription.episode_id == episode_id, Prescription.tenant_id == current_user.tenant_id
+    ).first()
+
+    # Step 2 — Rules engine
+    rule_result = evaluate_episode(episode, patient, prescription)
+
+    # Step 3-4 — Triage + optional AI
+    patient_summary = (
+        f"{patient.first_name} {patient.last_name}, "
+        f"né(e) le {patient.date_of_birth}, "
+        f"sexe {patient.gender}, "
+        f"motif: {episode.chief_complaint or 'non renseigné'}."
+    )
+    triage = triage_episode(
+        episode_id=str(episode.id),
+        rule_result=rule_result,
+        ai_service=ai_service if rule_result.clinical_complete_percent >= 70.0 else None,
+        patient_summary=patient_summary,
+    )
+
+    # Step 5 — Persist completeness
+    episode.clinical_complete_percent = rule_result.clinical_complete_percent
+    if rule_result.clinical_complete_percent >= 70.0 and episode.status == "collected":
+        episode.status = "processing"
+    db.commit()
+    db.refresh(episode)
+
+    return AnalysisResult(
+        episode_id=str(episode.id),
+        clinical_complete_percent=rule_result.clinical_complete_percent,
+        can_process=triage.can_process,
+        missing_fields=rule_result.missing_fields,
+        violations=[
+            RuleViolationOut(
+                field=v.field, severity=v.severity, message=v.message, recommendation=v.recommendation
+            )
+            for v in rule_result.violations
+        ],
+        recommendations=rule_result.recommendations,
+        ai_analysis=triage.ai_analysis,
+        confidence=ConfidenceScoreOut(
+            score=triage.confidence.score if triage.confidence else 0.0,
+            level=triage.confidence.level if triage.confidence else "low",
+            risk_category=triage.confidence.risk_category if triage.confidence else None,
+            triage_notes=triage.confidence.triage_notes if triage.confidence else [],
+            flags=triage.confidence.flags if triage.confidence else [],
+        ) if triage.confidence else None,
+        next_steps=triage.next_steps,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Prescription management (doctor-only signing)
+# -----------------------------------------------------------------------------
+
+
+def _require_doctor_or_ipa(user: User) -> None:
+    """Raise 403 if user is not doctor or ipa."""
+    if user.role not in ("doctor", "ipa"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor or IPA role required")
+
+
+@router.post("/api/prescriptions", response_model=PrescriptionOut, tags=["prescriptions"])
+async def create_prescription(
+    payload: PrescriptionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PrescriptionOut:
+    _require_doctor_or_ipa(current_user)
+    episode = db.query(Episode).filter(
+        Episode.id == payload.episode_id, Episode.tenant_id == current_user.tenant_id
+    ).first()
+    if not episode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    prescription = Prescription(
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
+        **payload.model_dump(),
+    )
+    db.add(prescription)
+    db.commit()
+    db.refresh(prescription)
+    return PrescriptionOut.model_validate(prescription)
+
+
+@router.get("/api/prescriptions", response_model=list[PrescriptionOut], tags=["prescriptions"])
+async def list_prescriptions(
+    episode_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[PrescriptionOut]:
+    query = db.query(Prescription).filter(Prescription.tenant_id == current_user.tenant_id)
+    if episode_id:
+        query = query.filter(Prescription.episode_id == episode_id)
+    return [PrescriptionOut.model_validate(p) for p in query.all()]
+
+
+@router.get("/api/prescriptions/{prescription_id}", response_model=PrescriptionOut, tags=["prescriptions"])
+async def get_prescription(
+    prescription_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PrescriptionOut:
+    prescription = db.query(Prescription).filter(
+        Prescription.id == prescription_id, Prescription.tenant_id == current_user.tenant_id
+    ).first()
+    if not prescription:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prescription not found")
+    return PrescriptionOut.model_validate(prescription)
+
+
+@router.patch("/api/prescriptions/{prescription_id}", response_model=PrescriptionOut, tags=["prescriptions"])
+async def update_prescription(
+    prescription_id: str,
+    payload: PrescriptionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PrescriptionOut:
+    _require_doctor_or_ipa(current_user)
+    prescription = db.query(Prescription).filter(
+        Prescription.id == prescription_id, Prescription.tenant_id == current_user.tenant_id
+    ).first()
+    if not prescription:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prescription not found")
+    if prescription.signed_by is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot edit a signed prescription")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(prescription, field, value)
+    db.commit()
+    db.refresh(prescription)
+    return PrescriptionOut.model_validate(prescription)
+
+
+@router.post(
+    "/api/prescriptions/{prescription_id}/sign",
+    response_model=PrescriptionOut,
+    tags=["prescriptions"],
+)
+async def sign_prescription(
+    prescription_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PrescriptionOut:
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Prescription signing is doctor-only")
+    prescription = db.query(Prescription).filter(
+        Prescription.id == prescription_id, Prescription.tenant_id == current_user.tenant_id
+    ).first()
+    if not prescription:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prescription not found")
+    if prescription.signed_by is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Prescription already signed")
+    from datetime import datetime, timezone
+    prescription.signed_by = current_user.id
+    prescription.signed_at = datetime.now(timezone.utc)
+    prescription.status = "signed"
+    db.commit()
+    db.refresh(prescription)
+    return PrescriptionOut.model_validate(prescription)
+
+
+# -----------------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------------
+# Interoperability stubs (Option C) — return 501 Not Implemented in VI
+# -----------------------------------------------------------------------------
+
+STUB_ROUTES = [
+    "/api/interop/carte-vitale/read",
+    "/api/interop/mssante/send",
+    "/api/interop/dmp/push",
+    "/api/interop/fhir/patient/{patient_id}",
+    "/api/interop/dicom/upload",
+]
+
+
+@router.post("/api/interop/carte-vitale/read", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["interop"])
+async def stub_carte_vitale() -> dict:
+    return {"detail": "[VC - Non implemente] Carte Vitale reading not available in VI"}
+
+
+@router.post("/api/interop/mssante/send", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["interop"])
+async def stub_mssante() -> dict:
+    return {"detail": "[VC - Non implemente] MSSante sending not available in VI"}
+
+
+@router.post("/api/interop/dmp/push", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["interop"])
+async def stub_dmp() -> dict:
+    return {"detail": "[VC - Non implemente] DMP push not available in VI"}
+
+
+@router.get("/api/interop/fhir/patient/{patient_id}", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["interop"])
+async def stub_fhir(patient_id: str) -> dict:
+    return {"detail": "[VC - Non implemente] FHIR R4 export not available in VI"}
+
+
+@router.post("/api/interop/dicom/upload", status_code=status.HTTP_501_NOT_IMPLEMENTED, tags=["interop"])
+async def stub_dicom() -> dict:
+    return {"detail": "[VC - Non implemente] DICOM upload not available in VI"}
+

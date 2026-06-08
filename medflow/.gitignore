@@ -1,0 +1,32 @@
+# Compiled output
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Node
+node_modules/
+next-env.d.ts
+out/
+
+# Build artifacts
+medflow.db
+test.db
+*.sqlite3
+playwright-report/
+test-results/
+
+# Alembic cache
+*/alembic/versions/*.pyc
+*/alembic/versions/__pycache__/
+
+# IDE
+.vscode/
+.idea/
+*.iml
