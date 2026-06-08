@@ -106,3 +106,38 @@ export const createFieldVisit = (data: Record<string, unknown>) =>
 
 export const updateFieldVisit = (id: string, data: Record<string, unknown>) =>
   apiClient(`/api/field-visits/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+// Prescriptions
+export const getPrescriptions = (episodeId?: string) =>
+  apiClient(episodeId ? `/api/prescriptions?episode_id=${episodeId}` : "/api/prescriptions");
+
+export const createPrescription = (data: Record<string, unknown>) =>
+  apiClient("/api/prescriptions", { method: "POST", body: JSON.stringify(data) });
+
+export const updatePrescription = (id: string, data: Record<string, unknown>) =>
+  apiClient(`/api/prescriptions/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const signPrescription = (id: string) =>
+  apiClient(`/api/prescriptions/${id}/sign`, { method: "POST" });
+
+export const sendPrescription = (id: string, data?: { sent_to_email?: string }) =>
+  apiClient(`/api/prescriptions/${id}/send`, { method: "POST", body: JSON.stringify(data || {}) });
+
+export const cancelPrescription = (id: string, reason?: string) =>
+  apiClient(`/api/prescriptions/${id}/cancel`, { method: "POST", body: JSON.stringify({ cancellation_reason: reason || null }) });
+
+// Billing
+export const getBillings = (episodeId?: string) =>
+  apiClient(episodeId ? `/api/billings?episode_id=${episodeId}` : "/api/billings");
+
+export const createBilling = (data: Record<string, unknown>) =>
+  apiClient("/api/billings", { method: "POST", body: JSON.stringify(data) });
+
+export const updateBilling = (id: string, data: Record<string, unknown>) =>
+  apiClient(`/api/billings/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const validateBilling = (id: string) =>
+  apiClient(`/api/billings/${id}/validate`, { method: "POST" });
+
+export const exportBilling = (id: string) =>
+  apiClient(`/api/billings/${id}/export`, { method: "POST" });

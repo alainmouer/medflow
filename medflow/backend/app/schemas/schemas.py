@@ -171,10 +171,20 @@ class PrescriptionOut(PrescriptionBase):
     created_by: str | None = None
     signed_by: str | None = None
     signed_at: datetime | None = None
+    signature_hash: str | None = None
+    sent_to_email: str | None = None
+    sent_at: datetime | None = None
+    cancelled_by: str | None = None
+    cancelled_at: datetime | None = None
+    cancellation_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PrescriptionSendRequest(BaseModel):
+    sent_to_email: str | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -362,6 +372,48 @@ class FieldVisitOut(FieldVisitBase):
     checklist: str | None = None
     checklist_completion_rate: int
     created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# -----------------------------------------------------------------------------
+# Billing schemas
+# -----------------------------------------------------------------------------
+
+class BillingBase(BaseModel):
+    episode_id: str
+    patient_id: str | None = None
+    ccam_codes: str | None = None
+    acts_total: float = 0.0
+    social_security_base: float = 0.0
+    social_security_paid: float = 0.0
+    mutuelle_paid: float = 0.0
+    patient_liability: float = 0.0
+
+
+class BillingCreate(BillingBase):
+    pass
+
+
+class BillingUpdate(BaseModel):
+    ccam_codes: str | None = None
+    acts_total: float | None = None
+    social_security_base: float | None = None
+    social_security_paid: float | None = None
+    mutuelle_paid: float | None = None
+    patient_liability: float | None = None
+
+
+class BillingOut(BillingBase):
+    id: str
+    tenant_id: str
+    status: str
+    created_by: str | None = None
+    validated_by: str | None = None
+    validated_at: datetime | None = None
+    exported_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

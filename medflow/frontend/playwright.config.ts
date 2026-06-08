@@ -16,7 +16,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "cd ..\\backend && set PYTHONPATH=. && venv\\Scripts\\python.exe scripts\\start_dev_server.py",
+      command: "cd ..\\backend && venv\\Scripts\\python.exe app\\scripts\\seed_dev.py && set PYTHONPATH=. && venv\\Scripts\\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000",
       url: "http://127.0.0.1:8000/health",
       timeout: 120 * 1000,
       reuseExistingServer: !process.env.CI,

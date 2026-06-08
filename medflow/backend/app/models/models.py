@@ -103,7 +103,10 @@ class Episode(Base):
 
 
 class Prescription(Base):
-    """Medical prescription tied to an episode. Signing is doctor-only."""
+    """Medical prescription tied to an episode. Signing is doctor-only.
+
+    Workflow: draft → signed → sent → cancelled
+    """
 
     __tablename__ = "prescriptions"
 
@@ -119,6 +122,12 @@ class Prescription(Base):
     created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     signed_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
     signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signature_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # SHA-256 hex
+    sent_to_email: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -204,5 +213,30 @@ class FieldVisit(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
-# Ensure tenant_id is present on all new tables via this registry.
+class Billing(Base):
+    """Medical billing / invoice tied to an episode."""
+
+    __tablename__ = "billings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    episode_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    patient_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Billing data
+    ccam_codes: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+    acts_total: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    # Insurance
+    social_security_base: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    social_security_paid: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    mutuelle_paid: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    patient_liability: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    # Status
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
+    # Timestamps
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    validated_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    exported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 # Table audit trail and external_integration_logs will be added in later phases.

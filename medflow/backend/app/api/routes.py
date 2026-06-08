@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password
 from app.db.database import get_db
-from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry, Appointment, FieldVisit
+from app.models.models import Tenant, User, Patient, Episode, Prescription, TriageEntry, Appointment, FieldVisit, Billing
 from app.schemas.schemas import (
     HealthOut,
     Token,
@@ -26,6 +26,7 @@ from app.schemas.schemas import (
     PrescriptionCreate,
     PrescriptionOut,
     PrescriptionUpdate,
+    PrescriptionSendRequest,
     AnalysisResult,
     TriageCreate,
     TriageOut,
@@ -39,6 +40,9 @@ from app.schemas.schemas import (
     FieldVisitCreate,
     FieldVisitOut,
     FieldVisitUpdate,
+    BillingCreate,
+    BillingUpdate,
+    BillingOut,
 )
 from app.services.ai_service import AIService, get_ai_service
 from app.services.rules_engine import evaluate_episode
@@ -453,9 +457,74 @@ async def sign_prescription(
     if prescription.signed_by is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Prescription already signed")
     from datetime import datetime, timezone
+    import hashlib
+    payload = f"{prescription.id}:{prescription.episode_id}:{current_user.id}:{datetime.now(timezone.utc).isoformat()}"
+    prescription.signature_hash = hashlib.sha256(payload.encode()).hexdigest()
     prescription.signed_by = current_user.id
     prescription.signed_at = datetime.now(timezone.utc)
     prescription.status = "signed"
+    db.commit()
+    db.refresh(prescription)
+    return PrescriptionOut.model_validate(prescription)
+
+
+@router.post(
+    "/api/prescriptions/{prescription_id}/send",
+    response_model=PrescriptionOut,
+    tags=["prescriptions"],
+)
+async def send_prescription(
+    prescription_id: str,
+    payload: PrescriptionSendRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PrescriptionOut:
+    if current_user.role not in ("doctor", "ipa"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor or IPA role required")
+    prescription = db.query(Prescription).filter(
+        Prescription.id == prescription_id, Prescription.tenant_id == current_user.tenant_id
+    ).first()
+    if not prescription:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prescription not found")
+    if prescription.status != "signed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Prescription must be signed before sending")
+    if prescription.status == "sent":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Prescription already sent")
+    from datetime import datetime, timezone
+    prescription.status = "sent"
+    prescription.sent_at = datetime.now(timezone.utc)
+    if payload and payload.sent_to_email:
+        prescription.sent_to_email = payload.sent_to_email
+    db.commit()
+    db.refresh(prescription)
+    return PrescriptionOut.model_validate(prescription)
+
+
+@router.post(
+    "/api/prescriptions/{prescription_id}/cancel",
+    response_model=PrescriptionOut,
+    tags=["prescriptions"],
+)
+async def cancel_prescription(
+    prescription_id: str,
+    cancellation_reason: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> PrescriptionOut:
+    if current_user.role not in ("doctor", "ipa"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor or IPA role required")
+    prescription = db.query(Prescription).filter(
+        Prescription.id == prescription_id, Prescription.tenant_id == current_user.tenant_id
+    ).first()
+    if not prescription:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prescription not found")
+    if prescription.status == "cancelled":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Prescription already cancelled")
+    from datetime import datetime, timezone
+    prescription.status = "cancelled"
+    prescription.cancelled_by = current_user.id
+    prescription.cancelled_at = datetime.now(timezone.utc)
+    prescription.cancellation_reason = cancellation_reason
     db.commit()
     db.refresh(prescription)
     return PrescriptionOut.model_validate(prescription)
@@ -705,6 +774,131 @@ async def update_field_visit(
     db.commit()
     db.refresh(entry)
     return FieldVisitOut.model_validate(entry)
+
+
+# -----------------------------------------------------------------------------
+# Billing
+# -----------------------------------------------------------------------------
+
+
+@router.post("/api/billings", response_model=BillingOut, tags=["billing"])
+async def create_billing(
+    payload: BillingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BillingOut:
+    if current_user.role not in ("doctor", "ipa", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor, IPA or sec role required")
+    episode = db.query(Episode).filter(
+        Episode.id == payload.episode_id, Episode.tenant_id == current_user.tenant_id
+    ).first()
+    if not episode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    entry = Billing(
+        tenant_id=current_user.tenant_id,
+        created_by=current_user.id,
+        **payload.model_dump(),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return BillingOut.model_validate(entry)
+
+
+@router.get("/api/billings", response_model=list[BillingOut], tags=["billing"])
+async def list_billings(
+    episode_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[BillingOut]:
+    query = db.query(Billing).filter(Billing.tenant_id == current_user.tenant_id)
+    if episode_id:
+        query = query.filter(Billing.episode_id == episode_id)
+    return [BillingOut.model_validate(b) for b in query.all()]
+
+
+@router.get("/api/billings/{billing_id}", response_model=BillingOut, tags=["billing"])
+async def get_billing(
+    billing_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BillingOut:
+    entry = db.query(Billing).filter(
+        Billing.id == billing_id, Billing.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing not found")
+    return BillingOut.model_validate(entry)
+
+
+@router.patch("/api/billings/{billing_id}", response_model=BillingOut, tags=["billing"])
+async def update_billing(
+    billing_id: str,
+    payload: BillingUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BillingOut:
+    entry = db.query(Billing).filter(
+        Billing.id == billing_id, Billing.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing not found")
+    if current_user.role not in ("doctor", "ipa", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor, IPA or sec role required")
+    if entry.status == "exported":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Exported billing cannot be modified")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(entry, field, value)
+    db.commit()
+    db.refresh(entry)
+    return BillingOut.model_validate(entry)
+
+
+@router.post("/api/billings/{billing_id}/validate", response_model=BillingOut, tags=["billing"])
+async def validate_billing(
+    billing_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BillingOut:
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Billing validation is doctor-only")
+    entry = db.query(Billing).filter(
+        Billing.id == billing_id, Billing.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing not found")
+    if entry.status == "validated":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Billing already validated")
+    from datetime import datetime, timezone
+    entry.status = "validated"
+    entry.validated_by = current_user.id
+    entry.validated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(entry)
+    return BillingOut.model_validate(entry)
+
+
+@router.post("/api/billings/{billing_id}/export", response_model=BillingOut, tags=["billing"])
+async def export_billing(
+    billing_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BillingOut:
+    if current_user.role not in ("doctor", "sec"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Doctor or sec role required")
+    entry = db.query(Billing).filter(
+        Billing.id == billing_id, Billing.tenant_id == current_user.tenant_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billing not found")
+    if entry.status != "validated":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Billing must be validated before export")
+    from datetime import datetime, timezone
+    entry.status = "exported"
+    entry.exported_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(entry)
+    return BillingOut.model_validate(entry)
 
 
 # -----------------------------------------------------------------------------

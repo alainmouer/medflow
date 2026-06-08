@@ -8,6 +8,7 @@ const links = [
   { href: "/patients", label: "Patients" },
   { href: "/agenda", label: "Agenda" },
   { href: "/triage", label: "Triage" },
+  { href: "/billing", label: "Facturation" },
 ];
 
 export default function NavBar() {
