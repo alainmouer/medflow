@@ -90,18 +90,18 @@ def seed():
             db.refresh(p1)
             db.refresh(p2)
             
-            # Episodes
+            # Episodes (status collected so the UI shows the "Analyze" button)
             ep1 = Episode(
                 tenant_id=tenant.id,
                 patient_id=p1.id,
-                status="collecting",
+                status="collected",
                 chief_complaint="Douleur thoracique aigue",
                 intake_method="field"
             )
             ep2 = Episode(
                 tenant_id=tenant.id,
                 patient_id=p2.id,
-                status="pending",
+                status="collected",
                 chief_complaint="Fievre et courbatures",
                 intake_method="digital"
             )
