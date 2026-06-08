@@ -66,3 +66,6 @@ export const getEpisode = (id: string) =>
 
 export const analyzeEpisode = (id: string) =>
   apiClient(`/api/episodes/${id}/analyze`, { method: "POST" });
+
+export const signEpisode = (id: string) =>
+  apiClient(`/api/episodes/${id}/sign`, { method: "POST" });

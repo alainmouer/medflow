@@ -316,6 +316,28 @@ async def analyze_episode(
     )
 
 
+@router.post("/api/episodes/{episode_id}/sign", response_model=EpisodeOut, tags=["episodes"])
+async def sign_episode(
+    episode_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> EpisodeOut:
+    """Sign off an episode as a doctor."""
+    if current_user.role != "doctor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Episode signing is doctor-only")
+    episode = db.query(Episode).filter(
+        Episode.id == episode_id, Episode.tenant_id == current_user.tenant_id
+    ).first()
+    if not episode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+    if episode.status == "signed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Episode already signed")
+    episode.status = "signed"
+    db.commit()
+    db.refresh(episode)
+    return EpisodeOut.model_validate(episode)
+
+
 # -----------------------------------------------------------------------------
 # Prescription management (doctor-only signing)
 # -----------------------------------------------------------------------------

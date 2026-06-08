@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { analyzeEpisode, getEpisode, getPatient } from "@/utils/api";
+import { analyzeEpisode, getEpisode, getPatient, signEpisode } from "@/utils/api";
+
+interface Episode {
+  id: string;
+  status: string;
+  episode_type: string | null;
+  chief_complaint: string | null;
+  clinical_notes: string | null;
+}
 
 interface AnalysisResult {
   episode_id: string;
@@ -50,17 +58,25 @@ export default function AnalyzePage() {
   const episodeId = params.episode_id as string;
 
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [episode, setEpisode] = useState<Episode | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [patientName, setPatientName] = useState<string>("");
+  const [signing, setSigning] = useState(false);
 
   useEffect(() => {
-    getPatient(patientId)
-      .then((p) => setPatientName(`${p.last_name} ${p.first_name}`))
-      .catch(() => setPatientName("Patient inconnu"))
+    Promise.all([
+      getPatient(patientId),
+      getEpisode(episodeId),
+    ])
+      .then(([p, ep]) => {
+        setPatientName(`${p.last_name} ${p.first_name}`);
+        setEpisode(ep);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Erreur de chargement"))
       .finally(() => setFetching(false));
-  }, [patientId]);
+  }, [patientId, episodeId]);
 
   const handleAnalyze = async () => {
     setLoading(true);
@@ -74,6 +90,22 @@ export default function AnalyzePage() {
       setLoading(false);
     }
   };
+
+  const handleSign = async () => {
+    setSigning(true);
+    setError(null);
+    try {
+      await signEpisode(episodeId);
+      setEpisode((prev) => (prev ? { ...prev, status: "signed" } : prev));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur lors de la signature");
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  const canAnalyze =
+    !episode || (episode.status !== "signed" && episode.status !== "pending" && episode.status !== "processing");
 
   if (fetching) {
     return (
@@ -106,13 +138,18 @@ export default function AnalyzePage() {
             <p className="mb-6 text-slate-600">
               Le pipeline IA évalue la complétude clinique, les règles de sécurité et génère des recommandations.
             </p>
-            <button
-              onClick={handleAnalyze}
-              className="rounded-md bg-sky-600 px-6 py-2 text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
-              aria-label="Lancer l'analyse IA"
-            >
-              Analyser l&apos;épisode
-            </button>
+            {episode?.status === "signed" ? (
+              <p className="text-sm text-green-700 font-medium">Cet épisode est déjà signé.</p>
+            ) : (
+              <button
+                onClick={handleAnalyze}
+                disabled={!canAnalyze}
+                className="rounded-md bg-sky-600 px-6 py-2 text-sm font-medium text-white hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Lancer l'analyse IA"
+              >
+                Analyser l&apos;épisode
+              </button>
+            )}
             {error && <p className="mt-4 text-sm text-red-600" role="alert">{error}</p>}
           </div>
         )}
@@ -243,13 +280,20 @@ export default function AnalyzePage() {
               >
                 Relancer l&apos;analyse
               </button>
-              {result.can_process && (
+              {result.can_process && episode?.status !== "signed" && (
                 <button
-                  className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1"
+                  onClick={handleSign}
+                  disabled={signing}
+                  className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 disabled:opacity-50"
                   aria-label="Valider et signer"
                 >
-                  Valider pour signature
+                  {signing ? "Signature..." : "Valider pour signature"}
                 </button>
+              )}
+              {episode?.status === "signed" && (
+                <span className="rounded-md bg-green-100 px-4 py-2 text-sm font-medium text-green-700">
+                  Épisode signé
+                </span>
               )}
               <button
                 onClick={() => router.push(`/patients/${patientId}`)}
